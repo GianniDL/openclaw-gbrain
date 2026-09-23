@@ -50,7 +50,7 @@ RUN npm install --omit=dev
 # step is fast and the build log stays clean — the entrypoint runs
 # `gbrain init --pglite` at boot, which creates the brain and applies
 # migrations against the persistent disk.
-ARG GBRAIN_REF=c008902313b334b8a827dd9046b704d090d0197e
+ARG GBRAIN_REF=5008b287e47bf791132eedfebf66bdef11e9398c
 RUN npm_config_ignore_scripts=true bun add -g "github:garrytan/gbrain#${GBRAIN_REF}" \
     && gbrain --version
 
