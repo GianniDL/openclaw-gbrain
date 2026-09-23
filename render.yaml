@@ -28,6 +28,12 @@ services:
         generateValue: true
       - key: OPENCLAW_GATEWAY_TOKEN
         generateValue: true
+      - key: WEBHOOK_TOKEN
+        generateValue: true
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GITHUB_WORKSPACE_REPO
+        sync: false
       - key: PORT
         value: "10000"
 
