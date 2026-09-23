@@ -13,7 +13,7 @@ services:
     # deploy with no real brain yet; bump to pro_plus if you're ingesting
     # 10k+ pages in one batch.
     plan: pro
-    region: oregon
+    region: frankfurt
     healthCheckPath: /health
     dockerfilePath: ./Dockerfile
     disk:
