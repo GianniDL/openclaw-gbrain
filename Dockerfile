@@ -7,7 +7,7 @@
 # to apply the schema, then execs `alphaclaw start`, which runs the
 # AlphaClaw watchdog and the OpenClaw gateway.
 
-FROM node:22-slim
+FROM node:24-slim
 
 # System deps:
 #   - git, curl: required by AlphaClaw + GBrain install paths
@@ -50,15 +50,14 @@ RUN npm install --omit=dev
 # step is fast and the build log stays clean — the entrypoint runs
 # `gbrain init --pglite` at boot, which creates the brain and applies
 # migrations against the persistent disk.
-ARG GBRAIN_REF=5008b287e47bf791132eedfebf66bdef11e9398c
-ENV npm_config_ignore_scripts=true
-RUN bun add -g "github:garrytan/gbrain#${GBRAIN_REF}" \
-    && gbrain --version || true
+ARG GBRAIN_REF=c008902313b334b8a827dd9046b704d090d0197e
+RUN npm_config_ignore_scripts=true bun add -g "github:garrytan/gbrain#${GBRAIN_REF}" \
+    && gbrain --version
 
 # Skill pack: GBrain's fat-markdown skills (ingest, query, maintain, enrich,
 # briefing, migrate, install, and ~40 more). They live at the repo root
 # under skills/. We stage them in /app/skills-seed; the entrypoint copies
-# them into $ALPHACLAW_ROOT_DIR/skills on first boot, since the persistent
+# them into $ALPHACLAW_ROOT_DIR/.openclaw/skills on first boot, since the persistent
 # disk isn't mounted during build.
 RUN mkdir -p /app/skills-seed \
     && GBRAIN_SKILLS_DIR="$BUN_INSTALL/install/global/node_modules/gbrain/skills" \
