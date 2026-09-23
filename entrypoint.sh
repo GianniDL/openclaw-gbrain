@@ -27,7 +27,8 @@ require_env ALPHACLAW_ROOT_DIR
 require_env GBRAIN_HOME
 
 mkdir -p "$ALPHACLAW_ROOT_DIR"
-mkdir -p "$ALPHACLAW_ROOT_DIR/skills"
+SKILLS_DIR="${ALPHACLAW_ROOT_DIR}/.openclaw/skills"
+mkdir -p "$SKILLS_DIR"
 # gbrain treats GBRAIN_HOME as a parent dir and appends '.gbrain' itself.
 # Create the resolved configDir so first-run writes never race a missing dir.
 mkdir -p "$GBRAIN_HOME/.gbrain"
@@ -53,11 +54,28 @@ fi
 # 3. Seed the GBrain skill pack into the AlphaClaw skills directory.
 #    Only copy on first boot or when the seed adds new skills (cp -n never
 #    overwrites user edits, so updates to existing skills require an explicit
-#    operator action).
+#    operator action). Make brain repo backup connections too.
 # ---------------------------------------------------------------------------
 if [ -d /app/skills-seed ]; then
-  log "Seeding GBrain skills into $ALPHACLAW_ROOT_DIR/skills..."
-  cp -rn /app/skills-seed/* "$ALPHACLAW_ROOT_DIR/skills/" || true
+  if [ "${GBRAIN_SKILLS_RESEED:-0}" = "1" ]; then
+    log "GBRAIN_SKILLS_RESEED=1 — refreshing GBrain skills (overwrites edits)..."
+    cp -rf /app/skills-seed/* "$SKILLS_DIR/" || true
+  else
+    log "Seeding GBrain skills into $SKILLS_DIR..."
+    cp -rn /app/skills-seed/* "$SKILLS_DIR/" || true
+  fi
+fi
+
+if [ -n "${BRAIN_REPO:-}" ]; then
+  BRAIN_DIR="${ALPHACLAW_ROOT_DIR}/brain"
+  if [ ! -d "$BRAIN_DIR/.git" ]; then
+    log "Cloning brain repo into $BRAIN_DIR..."
+    git clone "https://${GITHUB_TOKEN}@github.com/${BRAIN_REPO}.git" "$BRAIN_DIR"
+  else
+    log "Brain repo present; pulling..."
+    git -C "$BRAIN_DIR" pull --ff-only || log "WARN: brain pull failed"
+  fi
+  gbrain sync --repo "$BRAIN_DIR" || log "WARN: gbrain sync failed"
 fi
 
 # ---------------------------------------------------------------------------
