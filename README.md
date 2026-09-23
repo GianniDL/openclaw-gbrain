@@ -13,7 +13,7 @@ One-click Render deploy for [OpenClaw](https://github.com/openclaw/openclaw) wra
 
 - **AlphaClaw + OpenClaw**, same setup as the [base Render template](https://github.com/chrysb/openclaw-render-template): browser-based setup wizard, watchdog, in-app updates handled by Render.
 - **GBrain**, a Postgres-native knowledge brain with hybrid search (vector + keyword + RRF fusion + multi-query expansion), running on embedded **PGLite** so the brain lives entirely in-process — no external database to manage.
-- **GBrain skill pack** pre-seeded into `$ALPHACLAW_ROOT_DIR/skills` (ingest, query, maintain, enrich, briefing, install, and more). OpenClaw discovers them automatically on first boot.
+- **GBrain skill pack** pre-seeded into $ALPHACLAW_ROOT_DIR/.openclaw/skills, the directory OpenClaw actually scans, so the agent can use them from first boot. (Upstream seeds to /data/skills, which OpenClaw does not load.)
 - **One container, one disk.** No external Postgres, no second billing line, no second dashboard.
 
 ## What this template provisions
@@ -54,10 +54,10 @@ Initial embedding cost is roughly $4-5 per 7,500 pages.
 
 1. Click the **Deploy to Render** button above.
 2. Render provisions the web service and disk from `render.yaml`.
-3. On the web service config screen, fill in `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`. `SETUP_PASSWORD` and `OPENCLAW_GATEWAY_TOKEN` are generated automatically.
+3. On the web service config screen, fill in `OPENAI_API_KEY`,`ANTHROPIC_API_KEY`,`GITHUB_TOKEN` and `BRAIN_REPO`. `SETUP_PASSWORD` and `OPENCLAW_GATEWAY_TOKEN` are generated automatically.
 4. Wait for the first deploy. The entrypoint will:
    1. Run `gbrain init --pglite` to create the brain file at `/data/.gbrain/brain.pglite` and apply the schema.
-   2. Seed the GBrain skills into `/data/skills`.
+   2. Seed the GBrain skills into `/data/.openclaw/skills.`.
    3. Start AlphaClaw.
 5. Visit your Render URL, enter `SETUP_PASSWORD`, and complete the AlphaClaw welcome wizard.
 
@@ -72,7 +72,7 @@ You: Search the brain for everything we know about <topic>
 You: Give me a briefing for tomorrow
 ```
 
-OpenClaw reads the skill files in `/data/skills`, picks the right `gbrain` command, and runs it. You do not need to touch the CLI.
+OpenClaw reads the skill files in `/data/.openclaw/skills`, picks the right `gbrain` command, and runs it. You do not need to touch the CLI.
 
 ## Importing your existing knowledge base
 
@@ -83,6 +83,12 @@ GBrain is designed to ingest your existing markdown. Two patterns work well on R
 **Option B: git pull on the persistent disk.** SSH into the service (`render ssh`) and clone your knowledge repo into `/data/repos/<name>`, then in chat: "Import the markdown at `/data/repos/<name>`." The `install` skill handles `gbrain sync --watch` setup if you want incremental sync.
 
 Binary attachments (images, PDFs, audio) are not supported on this template. GBrain's `files` commands assume Supabase Storage; we would need to add Render Object Storage support upstream to wire those up. Text-only is the v1 scope.
+
+##Brain repo
+
+Set BRAIN_REPO (e.g. `you/myagent-brain`) and GITHUB_TOKEN in render.yaml. The entrypoint clones it to `/data/brain` on boot, pulls on later boots, and runs gbrain sync. Markdown there is the system of record; `/data/.gbrain` holds only the database and config and is never committed.
+
+Pushing new pages back is not automatic — add a scheduled `git -C /data/brain add -A && git commit && git push`, and tell the agent in AGENTS.md to write durable knowledge as markdown in `/data/brain`.
 
 ## What is in the box
 
@@ -95,12 +101,12 @@ Binary attachments (images, PDFs, audio) are not supported on this template. GBr
 └── README.md
 ```
 
-The skills themselves are not committed here. They are pulled from the GBrain repo at Docker build time, staged into `/app/skills-seed`, and copied to `/data/skills` on first boot. The skills always match the GBrain version you are running (pinned by SHA via the `GBRAIN_REF` build arg in the Dockerfile).
+The skills themselves are not committed here. They are pulled from the GBrain repo at Docker build time, staged into `/app/skills-seed`, and copied to `/data/.openclaw/skills` on first boot. The skills always match the GBrain version you are running (pinned by SHA via the `GBRAIN_REF` build arg in the Dockerfile).
 
 ## Updating
 
 - **AlphaClaw / OpenClaw**: In-app updates are disabled for Render-managed deploys as of AlphaClaw 0.9.0. Bump `@chrysb/alphaclaw` in `package.json` and redeploy.
-- **GBrain**: The image installs GBrain at the commit pinned by the `GBRAIN_REF` build arg in the Dockerfile. To upgrade, bump `GBRAIN_REF` to a newer commit from [garrytan/gbrain](https://github.com/garrytan/gbrain) and redeploy. On boot, `gbrain init` is idempotent and applies any pending schema migrations.
+- **GBrain**: The image installs GBrain at the commit pinned by the `GBRAIN_REF` build arg in the Dockerfile. To upgrade, bump `GBRAIN_REF` to a newer commit from [garrytan/gbrain](https://github.com/garrytan/gbrain) and redeploy. Existing skills are not overwritten on redeploy (cp -rn). To refresh them after a GBrain bump, set GBRAIN_SKILLS_RESEED=1 in the Envars tab, redeploy, then set it back to 0 — reseeding overwrites any local edits to skill files. On boot, `gbrain init` is idempotent and applies any pending schema migrations.
 - **Schema migrations**: `gbrain init` only runs on the first boot of a fresh disk (gated by the presence of `/data/.gbrain/config.json`). To force a re-run after a major GBrain upgrade, `render ssh` in and execute `gbrain apply-migrations --yes --non-interactive`.
 
 ## Why PGLite instead of Render Managed Postgres?
@@ -117,7 +123,7 @@ PGLite ([@electric-sql/pglite](https://github.com/electric-sql/pglite)) is GBrai
 
 **Embeddings stuck at 0.** Check the service logs for OpenAI rate limit errors. GBrain backs off automatically. If `OPENAI_API_KEY` is missing or invalid, search still works in keyword-only mode.
 
-**Skills not appearing in OpenClaw.** Confirm `/data/skills` is populated after first boot (`render ssh` into the service and `ls /data/skills`). The entrypoint uses `cp -rn` so it will never overwrite user edits, but it also will not re-seed if the directory exists.
+**Skills not appearing in OpenClaw.** render ssh in and check ls `/data/.openclaw/skills`, then openclaw skills list. Skills load at session start, so begin a new chat after a restart. If the directory is populated but the skills don't list, confirm the entrypoint is seeding to `.openclaw/skills` and not `/data/skills`.
 
 **Brain file missing after redeploy.** The brain lives at `/data/.gbrain/brain.pglite`. Confirm the persistent disk is still attached and mounted at `/data`. If you accidentally recreate the disk, the brain is gone — restore from the latest Render disk snapshot.
 
@@ -125,8 +131,8 @@ PGLite ([@electric-sql/pglite](https://github.com/electric-sql/pglite)) is GBrai
 
 - **Single-instance only.** PGLite (like the disk it lives on) can only be opened by one process at a time. This template does not support horizontal scaling or zero-downtime deploys. Render restarts the container on deploy, which briefly drops connections.
 - **Binary attachments**: not supported. GBrain's `files` subsystem expects Supabase Storage.
-- **Multi-region**: this template deploys to `oregon`. Change `region` in `render.yaml` if you need a different region; the disk must match the service.
-- **Backup**: AlphaClaw handles application-level disk backups via cron. Render disk snapshots provide block-level backups. Verify both are working before you put real knowledge into the brain.
+- **Multi-region**: this template deploys to `frankfurt`. Change `region` in `render.yaml` if you need a different region; the disk must match the service.
+- **Backup**: AlphaClaw backs up `/data/.openclaw` (config, skills, workspace) to your GitHub workspace repo. It does not back up the brain. `/data/.gbrain/brain.pglite` is covered only by Render disk snapshots; markdown in /data/brain is covered if you push that repo. DB-only pages and revision history exist solely in the PGLite file. Verify both before putting real knowledge in.
 
 ## License
 
